@@ -11,9 +11,14 @@
   <div class="row">
     <div class="col-md-8 offset-md-2">
       <form id="query-form">
+        <input type="hidden" id="task_id" name="task_id">
         <div class="mb-3">
           <label for="query" class="form-label">Query</label>
           <textarea class="form-control" id="query" name="query" rows="3"></textarea>
+        </div>
+        <div id="resuming-task-alert" class="alert alert-info" style="display: none;">
+            Continuing Task ID: <span id="resuming-task-id"></span>
+            <button type="button" class="btn-close float-end" aria-label="Close" onclick="clearTaskContext()"></button>
         </div>
         <div class="mb-3">
           <label for="search-options" class="form-label">Search Options</label>
@@ -36,6 +41,10 @@
             <div class="card-body">
               <p class="card-text"><strong>Query:</strong><span class="query-text">{{ item.query }}</span></p>
               <p class="card-text"><strong>Response:</strong><span class="response-text">{{ item.response }}</span></p>
+              {% if item.task_id %}
+              <p class="card-text"><small class="text-muted">Task ID: {{ item.task_id }}</small></p>
+              <button class="btn btn-sm btn-primary" onclick="continueTask('{{ item.task_id }}')">Continue Task</button>
+              {% endif %}
               <button class="btn btn-sm btn-secondary" onclick="copyToClipboard(this, '.query-text')">Copy Query</button>
               <button class="btn btn-sm btn-secondary" onclick="copyToClipboard(this, '.response-text')">Copy Response</button>
               <button class="btn btn-sm btn-danger" onclick="deleteHistoryItem(this)">Delete</button>
@@ -51,6 +60,17 @@
 {% block scripts %}
   <script>
     console.log("Initializing Cline UI scripts...");
+    
+    // Render Markdown for existing history items
+    document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('.response-text').forEach(el => {
+            // Only render if it doesn't look like a status update
+            if (!el.innerText.startsWith("Processing")) {
+                el.innerHTML = DOMPurify.sanitize(marked.parse(el.innerText));
+            }
+        });
+    });
+
     const toastLiveExample = document.getElementById('liveToast')
     let toast;
     if (toastLiveExample) {
@@ -153,7 +173,35 @@
           .then(data => {
             // Always update the text to show latest status
             if (data.response) {
-                cardElement.querySelector('.response-text').innerText = data.response;
+                const responseEl = cardElement.querySelector('.response-text');
+                if (data.response.startsWith("Processing")) {
+                    responseEl.innerText = data.response;
+                } else {
+                    responseEl.innerHTML = DOMPurify.sanitize(marked.parse(data.response));
+                }
+            }
+            
+            // Inject Task ID and Continue button if available and not present
+            if (data.task_id && !cardElement.querySelector('.btn-continue-task')) {
+                const cardBody = cardElement.querySelector('.card-body');
+                const firstButton = cardBody.querySelector('button'); // First existing button
+                
+                const taskIdP = document.createElement('p');
+                taskIdP.className = "card-text";
+                taskIdP.innerHTML = `<small class="text-muted">Task ID: ${data.task_id}</small>`;
+                
+                const continueBtn = document.createElement('button');
+                continueBtn.className = "btn btn-sm btn-primary btn-continue-task";
+                continueBtn.textContent = "Continue Task";
+                continueBtn.onclick = function() { continueTask(data.task_id); };
+                
+                // Insert before the first button (Copy Query)
+                if (firstButton) {
+                    cardBody.insertBefore(taskIdP, firstButton);
+                    cardBody.insertBefore(continueBtn, firstButton);
+                    // Add some spacing/newline if needed, or rely on CSS/block elements
+                    // Buttons are inline-block usually. p is block.
+                }
             }
 
             // Check if finished. We consider it finished if it doesn't start with "Processing"
@@ -202,6 +250,19 @@
         console.error('Error:', error);
         showToast('An error occurred while deleting the history item.');
       });
+    }
+
+    function continueTask(taskId) {
+        document.getElementById('task_id').value = taskId;
+        document.getElementById('resuming-task-id').innerText = taskId;
+        document.getElementById('resuming-task-alert').style.display = 'block';
+        document.getElementById('query').focus();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function clearTaskContext() {
+        document.getElementById('task_id').value = '';
+        document.getElementById('resuming-task-alert').style.display = 'none';
     }
   </script>
 {% endblock %}

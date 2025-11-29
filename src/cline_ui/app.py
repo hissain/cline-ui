@@ -24,6 +24,7 @@ class QueryHistory(Base):
     query = Column(Text, nullable=False)
     response = Column(Text, nullable=False)
     search_options = Column(String(255))
+    task_id = Column(String(50), nullable=True)
 
 Base.metadata.create_all(engine)
 
@@ -31,7 +32,7 @@ Base.metadata.create_all(engine)
 def shutdown_session(exception=None):
     Session.remove()
 
-def run_query_background(history_id, query_text):
+def run_query_background(history_id, query_text, task_id=None):
     with app.app_context():
         local_session = session_factory()
         
@@ -47,10 +48,25 @@ def run_query_background(history_id, query_text):
                 local_session.rollback()
 
         try:
-            response_text = cline_client.run_cline_command(query_text, update_callback=update_status)
+            # Context Stuffing: Prepend previous history if resuming, instead of using `task open`
+            final_query = query_text
+            if task_id:
+                # Find the item associated with this task_id (most recent one)
+                parent_item = local_session.query(QueryHistory).filter_by(task_id=task_id).order_by(QueryHistory.id.desc()).first()
+                if parent_item:
+                    context = f"Context from previous conversation (Task {task_id}):\n"
+                    context += f"User: {parent_item.query}\n"
+                    context += f"Assistant: {parent_item.response}\n\n"
+                    final_query = context + "New Request: " + query_text
+            
+            # Run as new task (pass task_id=None) to avoid `cline task open` issues
+            result = cline_client.run_cline_command(final_query, update_callback=update_status, task_id=None)
+            
             history_item = local_session.query(QueryHistory).get(history_id)
             if history_item:
-                history_item.response = response_text
+                history_item.response = result["response"]
+                if result.get("task_id"):
+                    history_item.task_id = result["task_id"]
                 local_session.commit()
         except Exception as e:
             print(f"Error in background task: {e}")
@@ -71,14 +87,15 @@ def index():
 def query():
     query_text = request.form.get('query')
     search_options = request.form.get('search_options')
+    task_id = request.form.get('task_id')
     
     # Create initial entry
-    new_query = QueryHistory(query=query_text, response="Processing...", search_options=search_options)
+    new_query = QueryHistory(query=query_text, response="Processing...", search_options=search_options, task_id=task_id)
     Session.add(new_query)
     Session.commit()
     
     # Start background task
-    thread = threading.Thread(target=run_query_background, args=(new_query.id, query_text))
+    thread = threading.Thread(target=run_query_background, args=(new_query.id, query_text, task_id))
     thread.start()
 
     return jsonify({'response': "Processing...", 'id': new_query.id})
@@ -99,7 +116,12 @@ def handle_history_item(item_id):
     elif request.method == 'GET':
         item = Session.query(QueryHistory).get(item_id)
         if item:
-            return jsonify({'id': item.id, 'query': item.query, 'response': item.response})
+            return jsonify({
+                'id': item.id, 
+                'query': item.query, 
+                'response': item.response,
+                'task_id': item.task_id
+            })
         return jsonify({'error': 'Item not found'}), 404
 
 @app.route('/settings', methods=['GET', 'POST'])

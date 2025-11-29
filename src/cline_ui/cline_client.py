@@ -71,7 +71,7 @@ def extract_json_objects(text):
                     start_index = -1
     return json_objects
 
-def run_cline_command(prompt, update_callback=None):
+def run_cline_command(prompt, update_callback=None, task_id=None):
     """
     Executes a command using the cline CLI, streams output, and returns the final response
     as soon as it is detected.
@@ -79,21 +79,38 @@ def run_cline_command(prompt, update_callback=None):
     print(f"[{time.time()}] Starting run_cline_command")
     cline_path = get_cline_path()
     if not cline_path:
-        return "Error: 'cline' executable not found. Please configure the correct path in the settings."
+        return {"response": "Error: 'cline' executable not found. Please configure the correct path in the settings.", "task_id": None}
 
     # Append instruction to avoid browser if requested
     enhanced_prompt = prompt + " (NOTE: Do not use the browser tool. Answer directly from your knowledge.)"
 
-    command = [
-        cline_path,
-        enhanced_prompt,
-        "--output-format",
-        "json",
-        "--mode",
-        "plan",
-        "--yolo",
-        "--verbose"
-    ]
+    if task_id:
+        # Resume existing task
+        command = [
+            cline_path,
+            "task",
+            "open",
+            task_id,
+            "--output-format",
+            "json",
+            "--mode",
+            "act", # Use act mode when resuming to ensure interaction
+            "--yolo",
+            "--verbose"
+        ]
+        # We will pipe the prompt to stdin
+    else:
+        # New task
+        command = [
+            cline_path,
+            enhanced_prompt,
+            "--output-format",
+            "json",
+            "--mode",
+            "plan",
+            "--yolo",
+            "--verbose"
+        ]
     
     process = None
     try:
@@ -102,9 +119,25 @@ def run_cline_command(prompt, update_callback=None):
             command, 
             stdout=subprocess.PIPE, 
             stderr=subprocess.PIPE, 
+            stdin=subprocess.PIPE if task_id else None,
             text=True,
             bufsize=1  # Line buffered
         )
+        
+        if task_id:
+            try:
+                print(f"[{time.time()}] Sending prompt to stdin for task {task_id}")
+                if not enhanced_prompt.endswith('\n'):
+                    enhanced_prompt += '\n'
+                # Add extra newline to ensure it triggers
+                process.stdin.write(enhanced_prompt + "\n")
+                process.stdin.flush()
+                # Give it a moment to latch on?
+                time.sleep(2) 
+                process.stdin.close()
+                process.stdin = None # Prevent communicate from using closed stdin
+            except Exception as e:
+                print(f"[{time.time()}] Error writing to stdin: {e}")
         
         print(f"[{time.time()}] Streaming output...")
         accumulated_stdout = ""
@@ -112,6 +145,7 @@ def run_cline_command(prompt, update_callback=None):
         max_wait_time = 600 # Safety net (10 minutes)
         
         processed_count = 0
+        detected_task_id = task_id
 
         while True:
             # Check for timeout
@@ -171,6 +205,13 @@ def run_cline_command(prompt, update_callback=None):
                         if status and update_callback:
                             update_callback(status)
 
+                # Detect Task ID if new task
+                if not detected_task_id:
+                    task_id_match = re.search(r'Task created successfully with ID: (\d+)', accumulated_stdout)
+                    if task_id_match:
+                        detected_task_id = task_id_match.group(1)
+                        print(f"[{time.time()}] Detected new Task ID: {detected_task_id}")
+
                 final_object = None
                 for obj in reversed(json_objects):
                     if obj.get("ask") == "plan_mode_respond":
@@ -181,7 +222,7 @@ def run_cline_command(prompt, update_callback=None):
                     print(f"[{time.time()}] Found final answer object while streaming.")
                     process.kill() # We got what we wanted
                     response_data = json.loads(final_object["text"])
-                    return response_data["response"]
+                    return {"response": response_data["response"], "task_id": detected_task_id}
             
             # If line is empty, it means EOF (process closed stdout)
             if not line:
@@ -195,14 +236,20 @@ def run_cline_command(prompt, update_callback=None):
         stdout, stderr = process.communicate()
         accumulated_stdout += stdout
         
+        # Final attempt to find Task ID if needed
+        if not detected_task_id:
+             task_id_match = re.search(r'Task created successfully with ID: (\d+)', accumulated_stdout)
+             if task_id_match:
+                 detected_task_id = task_id_match.group(1)
+
         if not accumulated_stdout:
             if stderr:
-                return f"Error: {stderr}"
-            return "Error: No output captured from command."
+                return {"response": f"Error: {stderr}", "task_id": detected_task_id}
+            return {"response": "Error: No output captured from command.", "task_id": detected_task_id}
 
         json_objects = extract_json_objects(accumulated_stdout)
         if not json_objects:
-            return f"Error: No valid JSON objects found in the output. Full output: {accumulated_stdout}"
+            return {"response": f"Error: No valid JSON objects found in the output. Full output: {accumulated_stdout}", "task_id": detected_task_id}
 
         final_object = None
         for obj in reversed(json_objects):
@@ -212,16 +259,16 @@ def run_cline_command(prompt, update_callback=None):
         
         if final_object:
              response_data = json.loads(final_object["text"])
-             return response_data["response"]
+             return {"response": response_data["response"], "task_id": detected_task_id}
         else:
-            return f"Error: Could not find the final answer in the output. Full output: {accumulated_stdout}"
+            return {"response": f"Error: Could not find the final answer in the output. Full output: {accumulated_stdout}", "task_id": detected_task_id}
 
     except FileNotFoundError:
-        return f"Error: '{cline_path}' executable not found. Please configure the correct path in the settings."
+        return {"response": f"Error: '{cline_path}' executable not found. Please configure the correct path in the settings.", "task_id": None}
     except Exception as e:
         if process:
              try:
                  process.kill()
              except:
                  pass
-        return f"An unexpected error occurred: {e}"
+        return {"response": f"An unexpected error occurred: {e}", "task_id": None}
