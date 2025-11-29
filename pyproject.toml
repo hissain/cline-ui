@@ -23,8 +23,8 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/your-username/cline-ui"
-"Bug Tracker" = "https://github.com/your-username/cline-ui/issues"
+"Homepage" = "https://github.com/hissain/cline-ui"
+"Bug Tracker" = "https://github.com/hissain/cline-ui/issues"
 
 [project.scripts]
 cline-ui = "cline_ui.cli:main"
