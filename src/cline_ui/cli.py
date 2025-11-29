@@ -9,7 +9,7 @@ def main():
 @main.command()
 def start():
     """Starts the Cline UI web server."""
-    app.run(debug=True)
+    app.run(debug=True, use_reloader=False)
 
 if __name__ == "__main__":
     main()

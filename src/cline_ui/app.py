@@ -34,8 +34,20 @@ def shutdown_session(exception=None):
 def run_query_background(history_id, query_text):
     with app.app_context():
         local_session = session_factory()
+        
+        def update_status(status_text):
+            try:
+                # Re-query the item to ensure it's attached to session
+                item = local_session.query(QueryHistory).get(history_id)
+                if item:
+                    item.response = status_text
+                    local_session.commit()
+            except Exception as e:
+                print(f"Error updating status: {e}")
+                local_session.rollback()
+
         try:
-            response_text = cline_client.run_cline_command(query_text)
+            response_text = cline_client.run_cline_command(query_text, update_callback=update_status)
             history_item = local_session.query(QueryHistory).get(history_id)
             if history_item:
                 history_item.response = response_text

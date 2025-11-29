@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import time
+import re
 
 def find_cline_executable():
     """
@@ -70,7 +71,7 @@ def extract_json_objects(text):
                     start_index = -1
     return json_objects
 
-def run_cline_command(prompt):
+def run_cline_command(prompt, update_callback=None):
     """
     Executes a command using the cline CLI, streams output, and returns the final response
     as soon as it is detected.
@@ -80,13 +81,18 @@ def run_cline_command(prompt):
     if not cline_path:
         return "Error: 'cline' executable not found. Please configure the correct path in the settings."
 
+    # Append instruction to avoid browser if requested
+    enhanced_prompt = prompt + " (NOTE: Do not use the browser tool. Answer directly from your knowledge.)"
+
     command = [
         cline_path,
-        prompt,
+        enhanced_prompt,
         "--output-format",
         "json",
         "--mode",
-        "plan"
+        "plan",
+        "--yolo",
+        "--verbose"
     ]
     
     process = None
@@ -103,8 +109,10 @@ def run_cline_command(prompt):
         print(f"[{time.time()}] Streaming output...")
         accumulated_stdout = ""
         start_time = time.time()
-        max_wait_time = 120 # Safety net
+        max_wait_time = 600 # Safety net (10 minutes)
         
+        processed_count = 0
+
         while True:
             # Check for timeout
             if time.time() - start_time > max_wait_time:
@@ -121,6 +129,48 @@ def run_cline_command(prompt):
                 print(f"[{time.time()}] Attempting to extract JSON objects...")
                 json_objects = extract_json_objects(accumulated_stdout)
                 
+                # Process new objects
+                new_objects = json_objects[processed_count:]
+                for obj in new_objects:
+                    processed_count += 1
+                    status = None
+                    if obj.get("say"):
+                        say_type = obj.get("say")
+                        if say_type == "api_req_started":
+                            status = "Processing: API Request Started..."
+                        elif say_type == "error_retry":
+                            status = "Processing: API Request Failed, Retrying..."
+                        elif say_type == "api_req_retried":
+                            status = "Processing: API Request Retried..."
+                        elif say_type == "text":
+                            # We don't want to show full text stream as status, maybe just "Processing..."
+                            pass
+                        elif say_type == "checkpoint_created":
+                            status = "Processing: Checkpoint created..."
+                        else:
+                            status = f"Processing: {say_type}..."
+                    elif obj.get("ask") == "tool":
+                         status = "Processing: Executing tool..."
+                    
+                    if status and update_callback:
+                        update_callback(status)
+
+                # Fallback: Parse verbose debug logs for status if no JSON object
+                if not new_objects:
+                    debug_match = re.search(r'\[DEBUG\]: State message \d+: type=say, say=(\w+)', line)
+                    if debug_match:
+                        say_type = debug_match.group(1)
+                        status = None
+                        if say_type == "api_req_started":
+                            status = "Processing: API Request Started..."
+                        elif say_type == "api_req_retried":
+                             status = "Processing: API Request Retried..."
+                        elif say_type == "checkpoint_created":
+                             status = "Processing: Checkpoint created..."
+                        
+                        if status and update_callback:
+                            update_callback(status)
+
                 final_object = None
                 for obj in reversed(json_objects):
                     if obj.get("ask") == "plan_mode_respond":

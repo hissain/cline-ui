@@ -46,15 +46,26 @@
     </div>
   </div>
 
+{% endblock %}
+
+{% block scripts %}
   <script>
+    console.log("Initializing Cline UI scripts...");
     const toastLiveExample = document.getElementById('liveToast')
     let toast;
-    if (toastLiveExample && typeof bootstrap !== 'undefined') {
-      try {
-        toast = new bootstrap.Toast(toastLiveExample)
-      } catch (e) {
-        console.error("Failed to initialize toast", e);
+    if (toastLiveExample) {
+      if (typeof bootstrap !== 'undefined') {
+         try {
+           toast = new bootstrap.Toast(toastLiveExample)
+           console.log("Toast initialized");
+         } catch (e) {
+           console.error("Failed to initialize toast", e);
+         }
+      } else {
+         console.warn("Bootstrap not defined");
       }
+    } else {
+      console.warn("Toast element not found");
     }
     
     const progressBar = document.querySelector('.progress');
@@ -62,6 +73,7 @@
     let progressInterval;
 
     function showToast(message) {
+      console.log("showToast:", message);
       if (toast) {
         const toastBody = document.querySelector('.toast-body');
         toastBody.textContent = message;
@@ -72,6 +84,7 @@
     }
 
     function startProgressBar() {
+      console.log("Starting progress bar");
       progressBar.style.display = 'block';
       let width = 0;
       progressInterval = setInterval(() => {
@@ -85,51 +98,61 @@
     }
 
     function resetProgressBar() {
+      console.log("Resetting progress bar");
       clearInterval(progressInterval);
       progressBar.style.display = 'none';
       progressBarInner.style.width = '0%';
     }
 
-    document.getElementById('query-form').addEventListener('submit', function(e) {
-      e.preventDefault();
-      const formData = new FormData(this);
-      startProgressBar();
-      fetch('/query', {
-        method: 'POST',
-        body: formData
-      })
-      .then(response => response.json())
-      .then(data => {
-        const historyDiv = document.getElementById('history');
-        const newEntry = document.createElement('div');
-        newEntry.classList.add('card', 'mb-3');
-        newEntry.setAttribute('data-id', data.id);
-        newEntry.innerHTML = `
-          <div class="card-body">
-            <p class="card-text"><strong>Query:</strong><span class="query-text">${formData.get('query')}</span></p>
-            <p class="card-text"><strong>Response:</strong><span class="response-text">${data.response}</span></p>
-            <button class="btn btn-sm btn-secondary" onclick="copyToClipboard(this, '.query-text')">Copy Query</button>
-            <button class="btn btn-sm btn-secondary" onclick="copyToClipboard(this, '.response-text')">Copy Response</button>
-            <button class="btn btn-sm btn-danger" onclick="deleteHistoryItem(this)">Delete</button>
-          </div>
-        `;
-        historyDiv.prepend(newEntry);
-        
-        pollForResponse(data.id, newEntry);
-      })
-      .catch(error => {
-        resetProgressBar();
-        console.error('Error:', error);
-        showToast('An error occurred while starting the query.');
-      });
-    });
+    const queryForm = document.getElementById('query-form');
+    if (queryForm) {
+        queryForm.addEventListener('submit', function(e) {
+          e.preventDefault();
+          console.log("Form submitted");
+          const formData = new FormData(this);
+          startProgressBar();
+          fetch('/query', {
+            method: 'POST',
+            body: formData
+          })
+          .then(response => response.json())
+          .then(data => {
+            console.log("Query response:", data);
+            const historyDiv = document.getElementById('history');
+            const newEntry = document.createElement('div');
+            newEntry.classList.add('card', 'mb-3');
+            newEntry.setAttribute('data-id', data.id);
+            newEntry.innerHTML = `
+              <div class="card-body">
+                <p class="card-text"><strong>Query:</strong><span class="query-text">${formData.get('query')}</span></p>
+                <p class="card-text"><strong>Response:</strong><span class="response-text">${data.response}</span></p>
+                <button class="btn btn-sm btn-secondary" onclick="copyToClipboard(this, '.query-text')">Copy Query</button>
+                <button class="btn btn-sm btn-secondary" onclick="copyToClipboard(this, '.response-text')">Copy Response</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteHistoryItem(this)">Delete</button>
+              </div>
+            `;
+            historyDiv.prepend(newEntry);
+            
+            pollForResponse(data.id, newEntry);
+          })
+          .catch(error => {
+            resetProgressBar();
+            console.error('Error:', error);
+            showToast('An error occurred while starting the query.');
+          });
+        });
+    } else {
+        console.error("Query form not found!");
+    }
 
     function pollForResponse(id, cardElement) {
+      console.log("Polling for response for id:", id);
       const intervalId = setInterval(() => {
         fetch(`/history/${id}`)
           .then(response => response.json())
           .then(data => {
             if (data.response !== "Processing...") {
+              console.log("Poll finished:", data);
               clearInterval(intervalId);
               cardElement.querySelector('.response-text').innerText = data.response;
               resetProgressBar();
