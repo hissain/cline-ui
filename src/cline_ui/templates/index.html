@@ -151,10 +151,16 @@
         fetch(`/history/${id}`)
           .then(response => response.json())
           .then(data => {
-            if (data.response !== "Processing...") {
+            // Always update the text to show latest status
+            if (data.response) {
+                cardElement.querySelector('.response-text').innerText = data.response;
+            }
+
+            // Check if finished. We consider it finished if it doesn't start with "Processing"
+            // This covers "Processing..." (initial) and "Processing: [Status]..." (updates)
+            if (data.response && !data.response.startsWith("Processing")) {
               console.log("Poll finished:", data);
               clearInterval(intervalId);
-              cardElement.querySelector('.response-text').innerText = data.response;
               resetProgressBar();
               showToast('Response received!');
             }
