@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Cline UI{% endblock %}
+
+{% block content %}
+  <div class="starter-template text-center py-5 px-3">
+    <h1>Settings</h1>
+    <p class="lead">Configure the Cline UI.</p>
+  </div>
+
+  <div class="row">
+    <div class="col-md-8 offset-md-2">
+      <form id="settings-form">
+        <div class="mb-3">
+          <label for="cline-path" class="form-label">Cline VS Code Extension Path</label>
+          <input type="text" class="form-control" id="cline-path" name="cline_path" placeholder="/path/to/cline/extension" value="{{ cline_path }}">
+        </div>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const toastLiveExample = document.getElementById('liveToast')
+    const toast = new bootstrap.Toast(toastLiveExample)
+
+    function showToast(message) {
+      const toastBody = document.querySelector('.toast-body');
+      toastBody.textContent = message;
+      toast.show()
+    }
+
+    document.getElementById('settings-form').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const formData = new FormData(this);
+      try {
+        const response = await fetch('/settings', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await response.json();
+        showToast(data.message);
+      } catch (error) {
+        console.error('Error saving settings:', error);
+        showToast('Error saving settings.');
+      }
+    });
+  </script>
+{% endblock %}

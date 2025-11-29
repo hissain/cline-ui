@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cline-ui"
+version = "0.1.0"
+authors = [
+  { name="Your Name", email="your@email.com" },
+]
+description = "A web-based UI for interacting with the Cline VS Code extension."
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "flask",
+    "click",
+    "sqlalchemy",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/your-username/cline-ui"
+"Bug Tracker" = "https://github.com/your-username/cline-ui/issues"
+
+[project.scripts]
+cline-ui = "cline_ui.cli:main"

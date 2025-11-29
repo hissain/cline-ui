@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}Home - Cline UI{% endblock %}
+
+{% block content %}
+  <div class="starter-template text-center py-5 px-3">
+    <h1>Welcome to Cline UI</h1>
+    <p class="lead">Enter your query below to interact with the Cline VS Code extension.</p>
+  </div>
+
+  <div class="row">
+    <div class="col-md-8 offset-md-2">
+      <form id="query-form">
+        <div class="mb-3">
+          <label for="query" class="form-label">Query</label>
+          <textarea class="form-control" id="query" name="query" rows="3"></textarea>
+        </div>
+        <div class="mb-3">
+          <label for="search-options" class="form-label">Search Options</label>
+          <input type="text" class="form-control" id="search-options" name="search-options">
+        </div>
+        <button type="submit" class="btn btn-primary">Submit</button>
+      </form>
+      <div class="progress mt-3" style="display: none;">
+        <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row mt-5">
+    <div class="col-md-8 offset-md-2">
+      <h2>History</h2>
+      <div id="history">
+        {% for item in history %}
+          <div class="card mb-3" data-id="{{ item.id }}">
+            <div class="card-body">
+              <p class="card-text"><strong>Query:</strong><span class="query-text">{{ item.query }}</span></p>
+              <p class="card-text"><strong>Response:</strong><span class="response-text">{{ item.response }}</span></p>
+              <button class="btn btn-sm btn-secondary" onclick="copyToClipboard(this, '.query-text')">Copy Query</button>
+              <button class="btn btn-sm btn-secondary" onclick="copyToClipboard(this, '.response-text')">Copy Response</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteHistoryItem(this)">Delete</button>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const toastLiveExample = document.getElementById('liveToast')
+    let toast;
+    if (toastLiveExample && typeof bootstrap !== 'undefined') {
+      try {
+        toast = new bootstrap.Toast(toastLiveExample)
+      } catch (e) {
+        console.error("Failed to initialize toast", e);
+      }
+    }
+    
+    const progressBar = document.querySelector('.progress');
+    const progressBarInner = document.querySelector('.progress-bar');
+    let progressInterval;
+
+    function showToast(message) {
+      if (toast) {
+        const toastBody = document.querySelector('.toast-body');
+        toastBody.textContent = message;
+        toast.show()
+      } else {
+        alert(message);
+      }
+    }
+
+    function startProgressBar() {
+      progressBar.style.display = 'block';
+      let width = 0;
+      progressInterval = setInterval(() => {
+        if (width >= 100) {
+          clearInterval(progressInterval);
+        } else {
+          width++;
+          progressBarInner.style.width = width + '%';
+        }
+      }, 600); // 60 seconds / 100
+    }
+
+    function resetProgressBar() {
+      clearInterval(progressInterval);
+      progressBar.style.display = 'none';
+      progressBarInner.style.width = '0%';
+    }
+
+    document.getElementById('query-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const formData = new FormData(this);
+      startProgressBar();
+      fetch('/query', {
+        method: 'POST',
+        body: formData
+      })
+      .then(response => response.json())
+      .then(data => {
+        const historyDiv = document.getElementById('history');
+        const newEntry = document.createElement('div');
+        newEntry.classList.add('card', 'mb-3');
+        newEntry.setAttribute('data-id', data.id);
+        newEntry.innerHTML = `
+          <div class="card-body">
+            <p class="card-text"><strong>Query:</strong><span class="query-text">${formData.get('query')}</span></p>
+            <p class="card-text"><strong>Response:</strong><span class="response-text">${data.response}</span></p>
+            <button class="btn btn-sm btn-secondary" onclick="copyToClipboard(this, '.query-text')">Copy Query</button>
+            <button class="btn btn-sm btn-secondary" onclick="copyToClipboard(this, '.response-text')">Copy Response</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteHistoryItem(this)">Delete</button>
+          </div>
+        `;
+        historyDiv.prepend(newEntry);
+        
+        pollForResponse(data.id, newEntry);
+      })
+      .catch(error => {
+        resetProgressBar();
+        console.error('Error:', error);
+        showToast('An error occurred while starting the query.');
+      });
+    });
+
+    function pollForResponse(id, cardElement) {
+      const intervalId = setInterval(() => {
+        fetch(`/history/${id}`)
+          .then(response => response.json())
+          .then(data => {
+            if (data.response !== "Processing...") {
+              clearInterval(intervalId);
+              cardElement.querySelector('.response-text').innerText = data.response;
+              resetProgressBar();
+              showToast('Response received!');
+            }
+          })
+          .catch(error => {
+            console.error('Error polling:', error);
+            // Don't stop polling on transient errors, but maybe limit retries in a real app
+          });
+      }, 2000);
+    }
+
+    function copyToClipboard(button, textSelector) {
+      const card = button.closest('.card-body');
+      const text = card.querySelector(textSelector).innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('Copied to clipboard!');
+      }, (err) => {
+        console.error('Could not copy text: ', err);
+        showToast('Failed to copy to clipboard.');
+      });
+    }
+
+    function deleteHistoryItem(button) {
+      const card = button.closest('.card');
+      const id = card.getAttribute('data-id');
+      fetch(`/history/${id}`, {
+        method: 'DELETE',
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          card.remove();
+          showToast('History item deleted.');
+        } else {
+          showToast('Failed to delete history item.');
+        }
+      })
+      .catch(error => {
+        console.error('Error:', error);
+        showToast('An error occurred while deleting the history item.');
+      });
+    }
+  </script>
+{% endblock %}
